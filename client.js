@@ -16,8 +16,11 @@ const BRIDGE_STATUS = document.getElementById('bridge-status');
 const CREATOR_LOG = document.getElementById('creator-log');
 const REQUESTER_LOG = document.getElementById('requester-log');
 
-const BRIDGE_WEBSOCKET_URL = "ws://127.0.0.1:3001";
-let bridgeSocket;
+const BRIDGE_URL = "ws://localhost:3001";
+let bridgeSocket = null;
+let connectionAttempts = 0;
+let maxRetries = 10;
+let retryInterval = 3000;
 
 let room;
 let isCreator = false;
@@ -43,6 +46,8 @@ async function main() {
     creatorId = creator.id;
     isCreator = currentUserId === creatorId;
     
+    console.log(`User ID: ${currentUserId}, Creator ID: ${creatorId}, Is Creator: ${isCreator}`);
+    
     setupUI();
     
     if (isCreator) {
@@ -59,6 +64,7 @@ function setupUI() {
     if (isCreator) {
         CREATOR_PANEL.classList.remove('hidden');
         DOWNLOAD_BRIDGE_BUTTON.classList.remove('hidden');
+        updateBridgeStatus("disconnected", "Creator panel initialized. Click 'Download Bridge' if you haven't set it up yet.");
     } else {
         REQUESTER_PANEL.classList.remove('hidden');
     }
@@ -104,71 +110,100 @@ async function setupRequester() {
 }
 
 function setupCreator() {
-    logTo(CREATOR_LOG, "Creator panel initialized. Attempting bridge connection...");
-    updateBridgeStatus("connecting");
-    connectToBridge();
+    logTo(CREATOR_LOG, "Creator panel activated. Starting bridge connection...");
     
     room.subscribePresenceUpdateRequests(handlePresenceUpdateRequest);
+    
+    // Start trying to connect to bridge
+    connectToBridge();
+    
+    // Add manual reconnect button functionality
+    BRIDGE_STATUS.style.cursor = 'pointer';
+    BRIDGE_STATUS.addEventListener('click', () => {
+        if (bridgeSocket?.readyState !== WebSocket.OPEN) {
+            connectionAttempts = 0;
+            connectToBridge();
+        }
+    });
 }
 
-function updateBridgeStatus(status) {
+function updateBridgeStatus(status, message = '') {
+    console.log(`Bridge status update: ${status} - ${message}`);
+    
     switch(status) {
         case "connected":
             BRIDGE_STATUS.textContent = "Connected ✓";
-            BRIDGE_STATUS.style.color = 'var(--success-color)';
-            BRIDGE_STATUS.style.backgroundColor = '#d4edda';
-            BRIDGE_STATUS.style.border = '2px solid var(--success-color)';
+            BRIDGE_STATUS.style.color = '#ffffff';
+            BRIDGE_STATUS.style.backgroundColor = '#28a745';
+            BRIDGE_STATUS.style.border = '2px solid #28a745';
             break;
         case "disconnected":
             BRIDGE_STATUS.textContent = "Disconnected ✗";
-            BRIDGE_STATUS.style.color = 'var(--error-color)';
-            BRIDGE_STATUS.style.backgroundColor = '#f8d7da';
-            BRIDGE_STATUS.style.border = '2px solid var(--error-color)';
+            BRIDGE_STATUS.style.color = '#ffffff';
+            BRIDGE_STATUS.style.backgroundColor = '#dc3545';
+            BRIDGE_STATUS.style.border = '2px solid #dc3545';
             break;
         case "connecting":
-            BRIDGE_STATUS.textContent = "Connecting...";
-            BRIDGE_STATUS.style.color = 'var(--warning-color)';
-            BRIDGE_STATUS.style.backgroundColor = '#fff3cd';
-            BRIDGE_STATUS.style.border = '2px solid var(--warning-color)';
+            BRIDGE_STATUS.textContent = `Connecting... (${connectionAttempts}/${maxRetries})`;
+            BRIDGE_STATUS.style.color = '#ffffff';
+            BRIDGE_STATUS.style.backgroundColor = '#ffc107';
+            BRIDGE_STATUS.style.border = '2px solid #ffc107';
             break;
+        case "failed":
+            BRIDGE_STATUS.textContent = "Connection Failed ✗";
+            BRIDGE_STATUS.style.color = '#ffffff';
+            BRIDGE_STATUS.style.backgroundColor = '#6c757d';
+            BRIDGE_STATUS.style.border = '2px solid #6c757d';
+            break;
+    }
+    
+    if (message) {
+        logTo(CREATOR_LOG, message, status === 'connected' ? 'success' : status === 'failed' ? 'error' : 'info');
     }
 }
 
 function connectToBridge() {
+    if (!isCreator) return;
+    
+    connectionAttempts++;
+    updateBridgeStatus("connecting", `Attempting to connect to bridge at ${BRIDGE_URL}... (attempt ${connectionAttempts})`);
+    
+    // Close existing connection
+    if (bridgeSocket) {
+        bridgeSocket.close();
+        bridgeSocket = null;
+    }
+    
     try {
-        logTo(CREATOR_LOG, `Attempting to connect to bridge at ${BRIDGE_WEBSOCKET_URL}...`);
+        bridgeSocket = new WebSocket(BRIDGE_URL);
         
-        // Close existing connection if any
-        if (bridgeSocket) {
-            bridgeSocket.close();
-        }
-        
-        bridgeSocket = new WebSocket(BRIDGE_WEBSOCKET_URL);
-
         bridgeSocket.onopen = () => {
-            updateBridgeStatus("connected");
-            logTo(CREATOR_LOG, "✓ Node.js bridge connected successfully!", 'success');
-        };
-
-        bridgeSocket.onclose = (event) => {
-            updateBridgeStatus("disconnected");
-            logTo(CREATOR_LOG, `✗ Bridge disconnected (code: ${event.code}). Retrying in 5 seconds...`, 'warn');
-            setTimeout(() => {
-                updateBridgeStatus("connecting");
-                connectToBridge();
-            }, 5000);
+            connectionAttempts = 0;
+            updateBridgeStatus("connected", "✓ Bridge connected successfully! Ready to process build requests.");
         };
         
-        bridgeSocket.onerror = (err) => {
-            console.error("Bridge WebSocket error:", err);
-            updateBridgeStatus("disconnected");
-            logTo(CREATOR_LOG, "✗ Bridge connection error. Make sure the Node.js bridge is running on localhost:3001", 'error');
+        bridgeSocket.onclose = (event) => {
+            updateBridgeStatus("disconnected", `Bridge disconnected (code: ${event.code}, reason: ${event.reason || 'unknown'})`);
+            
+            if (connectionAttempts < maxRetries) {
+                setTimeout(() => {
+                    connectToBridge();
+                }, retryInterval);
+            } else {
+                updateBridgeStatus("failed", `Failed to connect after ${maxRetries} attempts. Please ensure the Node.js bridge is running.`);
+            }
         };
-
+        
+        bridgeSocket.onerror = (error) => {
+            console.error("Bridge WebSocket error:", error);
+            updateBridgeStatus("disconnected", "Connection error occurred");
+        };
+        
         bridgeSocket.onmessage = handleBridgeMessage;
+        
     } catch (error) {
-        logTo(CREATOR_LOG, `Failed to create WebSocket connection: ${error.message}`, 'error');
-        updateBridgeStatus("disconnected");
+        console.error("Failed to create WebSocket:", error);
+        updateBridgeStatus("failed", `Failed to create connection: ${error.message}`);
     }
 }
 
@@ -176,14 +211,15 @@ function connectToBridge() {
 function handlePresenceUpdateRequest(updateRequest, fromClientId) {
     if (updateRequest.type === 'build-request') {
         const { url, platform, appName } = updateRequest;
-        logTo(CREATOR_LOG, `📨 Received build request from ${fromClientId.substring(0,8)}... for '${appName}' on ${platform}`);
+        logTo(CREATOR_LOG, `📨 Build request received from ${fromClientId.substring(0,8)}... for '${appName}' (${platform})`);
 
         if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
             const payload = { ...updateRequest, fromClientId };
-            logTo(CREATOR_LOG, `⏩ Forwarding request to Node.js bridge...`);
+            console.log("Sending to bridge:", payload);
             bridgeSocket.send(JSON.stringify(payload));
             
-            // Notify clients that build has started
+            logTo(CREATOR_LOG, `⏩ Request forwarded to Node.js bridge`);
+            
             room.send({
                 type: 'status-update',
                 requesterId: fromClientId,
@@ -192,9 +228,9 @@ function handlePresenceUpdateRequest(updateRequest, fromClientId) {
             });
 
         } else {
-            const errorMsg = `❌ Bridge not connected. Cannot process request. Current state: ${bridgeSocket ? bridgeSocket.readyState : 'null'}`;
+            const errorMsg = `❌ Bridge not connected! Cannot process build request.`;
             logTo(CREATOR_LOG, errorMsg, 'error');
-             room.send({
+            room.send({
                 type: 'status-update',
                 requesterId: fromClientId,
                 message: `❌ Build failed: Creator's bridge is not connected.`,
@@ -206,9 +242,9 @@ function handlePresenceUpdateRequest(updateRequest, fromClientId) {
 
 // Creator receives message from local bridge
 async function handleBridgeMessage(event) {
-    // Check if data is binary (the zip file)
+    console.log("Received message from bridge:", event.data);
+    
     if (event.data instanceof Blob) {
-        // The first part of the blob is our JSON metadata.
         const blob = event.data;
         
         // Find the separator to distinguish JSON from the zip data
@@ -227,7 +263,6 @@ async function handleBridgeMessage(event) {
         
         if (separatorIndex === -1) {
             logTo(CREATOR_LOG, 'Could not parse build data from bridge.', 'error');
-            console.error('Separator not found in binary message from bridge.');
             return;
         }
 
@@ -239,13 +274,12 @@ async function handleBridgeMessage(event) {
             const fileName = `${appName.replace(/[^a-zA-Z0-9\-]/g, '')}.zip`;
             const file = new File([zipPart], fileName, { type: "application/zip" });
 
-            logTo(CREATOR_LOG, `Received ${fileName} from bridge. Uploading...`, 'info');
-            room.send({ type: 'status-update', requesterId: fromClientId, message: `Build for '${appName}' complete! Uploading file...` });
+            logTo(CREATOR_LOG, `📦 Received ${fileName} from bridge. Uploading...`, 'info');
+            room.send({ type: 'status-update', requesterId: fromClientId, message: `Build complete! Uploading file...` });
 
             const url = await window.websim.upload(file);
-            logTo(CREATOR_LOG, `Upload complete! URL: ${url}`, 'success');
+            logTo(CREATOR_LOG, `✅ Upload complete! URL: ${url}`, 'success');
             
-            // Send final link to user
             room.send({ 
                 type: 'build-complete',
                 requesterId: fromClientId,
@@ -254,22 +288,15 @@ async function handleBridgeMessage(event) {
             });
 
         } catch (error) {
-            console.error("Upload or processing failed", error);
-            const errorMessage = `File processing/upload failed: ${error.message}`;
-            logTo(CREATOR_LOG, errorMessage, 'error');
-            try {
-                const { fromClientId, appName } = JSON.parse(jsonPart);
-                room.send({ type: 'status-update', requesterId: fromClientId, message: `Build for '${appName}' failed during upload.`, level: 'error' });
-            } catch(e) {
-                 // ignore if we can't even parse json
-            }
+            console.error("Upload failed:", error);
+            logTo(CREATOR_LOG, `Upload failed: ${error.message}`, 'error');
         }
     } else {
         // Assume JSON for status updates
         try {
             const data = JSON.parse(event.data);
             if (data.type === 'status') {
-                 logTo(CREATOR_LOG, `Bridge: ${data.message}`, data.level);
+                logTo(CREATOR_LOG, `Bridge: ${data.message}`, data.level || 'info');
                 // Relay status to the requester
                 if (data.originalRequest && data.originalRequest.fromClientId) {
                     room.send({

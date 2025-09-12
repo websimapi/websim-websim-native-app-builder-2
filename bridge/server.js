@@ -5,7 +5,10 @@ const path = require('path');
 const archiver = require('archiver');
 
 const PORT = 3001;
-const wss = new WebSocket.Server({ port: PORT });
+const wss = new WebSocket.Server({ 
+    port: PORT,
+    host: '127.0.0.1'
+});
 
 const BUILDS_DIR = path.join(__dirname, 'builds');
 
@@ -13,11 +16,19 @@ if (!fs.existsSync(BUILDS_DIR)) {
     fs.mkdirSync(BUILDS_DIR);
 }
 
-console.log(`WebSocket server started on ws://localhost:${PORT}`);
-console.log('Waiting for connection from the Websim client...');
+console.log(`🚀 WebSocket server started on ws://127.0.0.1:${PORT}`);
+console.log('⏳ Waiting for connection from the Websim client...');
+console.log('📋 Make sure your browser is open to the Websim page');
 
 wss.on('connection', ws => {
-    console.log('✓ Client connected from browser.');
+    console.log('✅ Client connected from browser!');
+    
+    // Send a test message to confirm connection
+    ws.send(JSON.stringify({ 
+        type: 'status', 
+        message: 'Bridge connected successfully!', 
+        level: 'success' 
+    }));
 
     ws.on('message', message => {
         try {
@@ -26,22 +37,31 @@ wss.on('connection', ws => {
                 type: request.type,
                 appName: request.appName,
                 platform: request.platform,
-                url: request.url?.substring(0, 50) + '...'
+                url: request.url?.substring(0, 50) + '...',
+                fromClientId: request.fromClientId?.substring(0, 8) + '...'
             });
             handleBuildRequest(ws, request);
         } catch (error) {
-            console.error('❌ Failed to parse message:', error);
-            ws.send(JSON.stringify({ type: 'error', message: 'Invalid request format.' }));
+            console.error('❌ Failed to parse message:', error.message);
+            ws.send(JSON.stringify({ 
+                type: 'status', 
+                message: 'Invalid request format received.', 
+                level: 'error' 
+            }));
         }
     });
 
-    ws.on('close', () => {
-        console.log('✗ Client disconnected.');
+    ws.on('close', (code, reason) => {
+        console.log(`❌ Client disconnected (code: ${code}, reason: ${reason || 'unknown'})`);
     });
 
     ws.on('error', (error) => {
-        console.error('❌ WebSocket error:', error);
+        console.error('❌ WebSocket error:', error.message);
     });
+});
+
+wss.on('error', (error) => {
+    console.error('❌ Server error:', error.message);
 });
 
 async function handleBuildRequest(ws, request) {

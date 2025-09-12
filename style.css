@@ -148,12 +148,19 @@ select {
 #bridge-status {
     font-weight: bold;
     font-size: 1.2rem;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
+    padding: 0.8rem 1.5rem;
+    border-radius: 8px;
     display: inline-block;
-    min-width: 150px;
+    min-width: 200px;
     text-align: center;
     transition: all 0.3s ease;
+    margin-top: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#bridge-status:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
 }
 
 .log-box {
