@@ -147,7 +147,13 @@ select {
 
 #bridge-status {
     font-weight: bold;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    display: inline-block;
+    min-width: 150px;
+    text-align: center;
+    transition: all 0.3s ease;
 }
 
 .log-box {

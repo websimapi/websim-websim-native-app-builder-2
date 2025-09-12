@@ -105,43 +105,70 @@ async function setupRequester() {
 
 function setupCreator() {
     logTo(CREATOR_LOG, "Creator panel initialized. Attempting bridge connection...");
-    BRIDGE_STATUS.textContent = "Connecting...";
-    BRIDGE_STATUS.style.color = 'var(--warning-color)';
+    updateBridgeStatus("connecting");
     connectToBridge();
     
     room.subscribePresenceUpdateRequests(handlePresenceUpdateRequest);
 }
 
+function updateBridgeStatus(status) {
+    switch(status) {
+        case "connected":
+            BRIDGE_STATUS.textContent = "Connected ✓";
+            BRIDGE_STATUS.style.color = 'var(--success-color)';
+            BRIDGE_STATUS.style.backgroundColor = '#d4edda';
+            BRIDGE_STATUS.style.border = '2px solid var(--success-color)';
+            break;
+        case "disconnected":
+            BRIDGE_STATUS.textContent = "Disconnected ✗";
+            BRIDGE_STATUS.style.color = 'var(--error-color)';
+            BRIDGE_STATUS.style.backgroundColor = '#f8d7da';
+            BRIDGE_STATUS.style.border = '2px solid var(--error-color)';
+            break;
+        case "connecting":
+            BRIDGE_STATUS.textContent = "Connecting...";
+            BRIDGE_STATUS.style.color = 'var(--warning-color)';
+            BRIDGE_STATUS.style.backgroundColor = '#fff3cd';
+            BRIDGE_STATUS.style.border = '2px solid var(--warning-color)';
+            break;
+    }
+}
+
 function connectToBridge() {
     try {
         logTo(CREATOR_LOG, `Attempting to connect to bridge at ${BRIDGE_WEBSOCKET_URL}...`);
+        
+        // Close existing connection if any
+        if (bridgeSocket) {
+            bridgeSocket.close();
+        }
+        
         bridgeSocket = new WebSocket(BRIDGE_WEBSOCKET_URL);
 
         bridgeSocket.onopen = () => {
-            BRIDGE_STATUS.textContent = "Connected ✓";
-            BRIDGE_STATUS.style.color = 'var(--success-color)';
+            updateBridgeStatus("connected");
             logTo(CREATOR_LOG, "✓ Node.js bridge connected successfully!", 'success');
         };
 
         bridgeSocket.onclose = (event) => {
-            BRIDGE_STATUS.textContent = "Disconnected ✗";
-            BRIDGE_STATUS.style.color = 'var(--error-color)';
+            updateBridgeStatus("disconnected");
             logTo(CREATOR_LOG, `✗ Bridge disconnected (code: ${event.code}). Retrying in 5 seconds...`, 'warn');
-            setTimeout(connectToBridge, 5000);
+            setTimeout(() => {
+                updateBridgeStatus("connecting");
+                connectToBridge();
+            }, 5000);
         };
         
         bridgeSocket.onerror = (err) => {
             console.error("Bridge WebSocket error:", err);
-            BRIDGE_STATUS.textContent = "Connection Error ✗";
-            BRIDGE_STATUS.style.color = 'var(--error-color)';
+            updateBridgeStatus("disconnected");
             logTo(CREATOR_LOG, "✗ Bridge connection error. Make sure the Node.js bridge is running on localhost:3001", 'error');
         };
 
         bridgeSocket.onmessage = handleBridgeMessage;
     } catch (error) {
         logTo(CREATOR_LOG, `Failed to create WebSocket connection: ${error.message}`, 'error');
-        BRIDGE_STATUS.textContent = "Failed to Connect ✗";
-        BRIDGE_STATUS.style.color = 'var(--error-color)';
+        updateBridgeStatus("disconnected");
     }
 }
 
