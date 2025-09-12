@@ -19,20 +19,34 @@ if (!fs.existsSync(BUILDS_DIR)) {
 console.log(`🚀 WebSocket server started on ws://127.0.0.1:${PORT}`);
 console.log('⏳ Waiting for connection from the Websim client...');
 console.log('📋 Make sure your browser is open to the Websim page');
+console.log('🔍 Server is listening on both localhost and 127.0.0.1');
 
 wss.on('connection', ws => {
     console.log('✅ Client connected from browser!');
+    console.log(`📊 Total connections: ${wss.clients.size}`);
     
     // Send a test message to confirm connection
     ws.send(JSON.stringify({ 
         type: 'status', 
-        message: 'Bridge connected successfully!', 
+        message: 'Bridge connected successfully! WebSocket communication established.', 
         level: 'success' 
     }));
 
     ws.on('message', message => {
         try {
             const request = JSON.parse(message);
+            
+            // Handle ping messages for connection testing
+            if (request.type === 'ping') {
+                console.log('🏓 Received ping from browser:', request.message);
+                ws.send(JSON.stringify({ 
+                    type: 'status', 
+                    message: 'Pong! Bridge connection is working correctly.', 
+                    level: 'success' 
+                }));
+                return;
+            }
+            
             console.log('📨 Received build request:', {
                 type: request.type,
                 appName: request.appName,
@@ -43,6 +57,7 @@ wss.on('connection', ws => {
             handleBuildRequest(ws, request);
         } catch (error) {
             console.error('❌ Failed to parse message:', error.message);
+            console.error('Raw message:', message.toString());
             ws.send(JSON.stringify({ 
                 type: 'status', 
                 message: 'Invalid request format received.', 
@@ -53,10 +68,11 @@ wss.on('connection', ws => {
 
     ws.on('close', (code, reason) => {
         console.log(`❌ Client disconnected (code: ${code}, reason: ${reason || 'unknown'})`);
+        console.log(`📊 Remaining connections: ${wss.clients.size}`);
     });
 
     ws.on('error', (error) => {
-        console.error('❌ WebSocket error:', error.message);
+        console.error('❌ WebSocket connection error:', error.message);
     });
 });
 

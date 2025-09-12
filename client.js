@@ -20,7 +20,8 @@ const BRIDGE_URL = "ws://localhost:3001";
 let bridgeSocket = null;
 let connectionAttempts = 0;
 let maxRetries = 10;
-let retryInterval = 3000;
+let retryInterval = 2000; // Reduced from 3000 to 2000 for faster retries
+let connectionTimeout = null;
 
 let room;
 let isCreator = false;
@@ -115,20 +116,27 @@ function setupCreator() {
     room.subscribePresenceUpdateRequests(handlePresenceUpdateRequest);
     
     // Start trying to connect to bridge
-    connectToBridge();
+    setTimeout(() => {
+        connectToBridge();
+    }, 1000); // Small delay to ensure UI is ready
     
     // Add manual reconnect button functionality
     BRIDGE_STATUS.style.cursor = 'pointer';
     BRIDGE_STATUS.addEventListener('click', () => {
+        console.log("[Bridge] Manual reconnection triggered by user");
         if (bridgeSocket?.readyState !== WebSocket.OPEN) {
             connectionAttempts = 0;
             connectToBridge();
+        } else {
+            // Test connection if already connected
+            bridgeSocket.send(JSON.stringify({ type: 'ping', message: 'Manual connection test' }));
+            logTo(CREATOR_LOG, "Connection test sent to bridge", 'info');
         }
     });
 }
 
 function updateBridgeStatus(status, message = '') {
-    console.log(`Bridge status update: ${status} - ${message}`);
+    console.log(`[Bridge] Status update: ${status} - ${message}`);
     
     switch(status) {
         case "connected":
@@ -136,24 +144,28 @@ function updateBridgeStatus(status, message = '') {
             BRIDGE_STATUS.style.color = '#ffffff';
             BRIDGE_STATUS.style.backgroundColor = '#28a745';
             BRIDGE_STATUS.style.border = '2px solid #28a745';
+            BRIDGE_STATUS.title = "Bridge is connected and ready. Click to test connection.";
             break;
         case "disconnected":
             BRIDGE_STATUS.textContent = "Disconnected ✗";
             BRIDGE_STATUS.style.color = '#ffffff';
             BRIDGE_STATUS.style.backgroundColor = '#dc3545';
             BRIDGE_STATUS.style.border = '2px solid #dc3545';
+            BRIDGE_STATUS.title = "Bridge is disconnected. Click to retry connection.";
             break;
         case "connecting":
             BRIDGE_STATUS.textContent = `Connecting... (${connectionAttempts}/${maxRetries})`;
             BRIDGE_STATUS.style.color = '#ffffff';
             BRIDGE_STATUS.style.backgroundColor = '#ffc107';
             BRIDGE_STATUS.style.border = '2px solid #ffc107';
+            BRIDGE_STATUS.title = "Attempting to connect to local bridge...";
             break;
         case "failed":
             BRIDGE_STATUS.textContent = "Connection Failed ✗";
             BRIDGE_STATUS.style.color = '#ffffff';
             BRIDGE_STATUS.style.backgroundColor = '#6c757d';
             BRIDGE_STATUS.style.border = '2px solid #6c757d';
+            BRIDGE_STATUS.title = "Connection failed. Make sure the Node.js bridge is running.";
             break;
     }
     
@@ -165,8 +177,16 @@ function updateBridgeStatus(status, message = '') {
 function connectToBridge() {
     if (!isCreator) return;
     
+    // Clear any existing timeout
+    if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+        connectionTimeout = null;
+    }
+    
     connectionAttempts++;
     updateBridgeStatus("connecting", `Attempting to connect to bridge at ${BRIDGE_URL}... (attempt ${connectionAttempts})`);
+    
+    console.log(`[Bridge] Attempting connection ${connectionAttempts}/${maxRetries} to ${BRIDGE_URL}`);
     
     // Close existing connection
     if (bridgeSocket) {
@@ -177,33 +197,67 @@ function connectToBridge() {
     try {
         bridgeSocket = new WebSocket(BRIDGE_URL);
         
+        // Set a connection timeout
+        connectionTimeout = setTimeout(() => {
+            if (bridgeSocket && bridgeSocket.readyState === WebSocket.CONNECTING) {
+                console.log("[Bridge] Connection timeout, closing socket");
+                bridgeSocket.close();
+            }
+        }, 5000); // 5 second timeout
+        
         bridgeSocket.onopen = () => {
+            console.log("[Bridge] WebSocket connection opened successfully");
             connectionAttempts = 0;
+            if (connectionTimeout) {
+                clearTimeout(connectionTimeout);
+                connectionTimeout = null;
+            }
             updateBridgeStatus("connected", "✓ Bridge connected successfully! Ready to process build requests.");
+            
+            // Send a test ping to confirm connection
+            if (bridgeSocket.readyState === WebSocket.OPEN) {
+                bridgeSocket.send(JSON.stringify({ type: 'ping', message: 'Connection test from browser' }));
+            }
         };
         
         bridgeSocket.onclose = (event) => {
-            updateBridgeStatus("disconnected", `Bridge disconnected (code: ${event.code}, reason: ${event.reason || 'unknown'})`);
+            console.log(`[Bridge] WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'unknown'}, WasClean: ${event.wasClean}`);
             
-            if (connectionAttempts < maxRetries) {
-                setTimeout(() => {
+            if (connectionTimeout) {
+                clearTimeout(connectionTimeout);
+                connectionTimeout = null;
+            }
+            
+            updateBridgeStatus("disconnected", `Bridge disconnected (code: ${event.code})`);
+            
+            // Only retry if we haven't exceeded max retries and this wasn't a clean close
+            if (connectionAttempts < maxRetries && event.code !== 1000) {
+                console.log(`[Bridge] Scheduling reconnection attempt in ${retryInterval}ms`);
+                connectionTimeout = setTimeout(() => {
                     connectToBridge();
                 }, retryInterval);
-            } else {
-                updateBridgeStatus("failed", `Failed to connect after ${maxRetries} attempts. Please ensure the Node.js bridge is running.`);
+            } else if (connectionAttempts >= maxRetries) {
+                updateBridgeStatus("failed", `Failed to connect after ${maxRetries} attempts. Please ensure the Node.js bridge is running on port 3001.`);
             }
         };
         
         bridgeSocket.onerror = (error) => {
-            console.error("Bridge WebSocket error:", error);
-            updateBridgeStatus("disconnected", "Connection error occurred");
+            console.error("[Bridge] WebSocket error:", error);
+            updateBridgeStatus("disconnected", `Connection error: Please ensure Node.js bridge is running`);
         };
         
         bridgeSocket.onmessage = handleBridgeMessage;
         
     } catch (error) {
-        console.error("Failed to create WebSocket:", error);
+        console.error("[Bridge] Failed to create WebSocket:", error);
         updateBridgeStatus("failed", `Failed to create connection: ${error.message}`);
+        
+        // Retry on creation failure
+        if (connectionAttempts < maxRetries) {
+            connectionTimeout = setTimeout(() => {
+                connectToBridge();
+            }, retryInterval);
+        }
     }
 }
 
@@ -242,7 +296,7 @@ function handlePresenceUpdateRequest(updateRequest, fromClientId) {
 
 // Creator receives message from local bridge
 async function handleBridgeMessage(event) {
-    console.log("Received message from bridge:", event.data);
+    console.log("[Bridge] Received message from bridge:", typeof event.data === 'string' ? event.data.substring(0, 200) + '...' : 'Binary data');
     
     if (event.data instanceof Blob) {
         const blob = event.data;
@@ -323,13 +377,13 @@ function convertToNativefierUrl(url) {
 
         if (hostname.endsWith('websim.com') || hostname.endsWith('websim.ai')) {
              // Format: https://websim.com/@username/path
-            const match = pathname.match(/^\/@([^/]+)\/(.+)$/);
+            const match = pathname.match(/^\/@([^\/]+)\/(.+)$/);
             if (match) {
                 username = match[1];
                 sitePath = match[2];
             } else {
                 // Format: https://websim.com/sites/site-id
-                const siteMatch = pathname.match(/^\/sites\/([^/]+)$/);
+                const siteMatch = pathname.match(/^\/sites\/([^\/]+)$/);
                  if (siteMatch) {
                     return url; // It's already in a good format, let nativefier handle it
                  }
