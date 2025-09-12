@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Websim Native App Builder</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <div class="header-content">
+                <img src="logo.png" alt="App Builder Logo" class="logo">
+                <h1>Websim Native App Builder</h1>
+            </div>
+            <a href="bridge.zip" download="websim-nativefier-bridge.zip" id="download-bridge-button" class="button primary large hidden">Download Node.js Bridge</a>
+        </header>
+
+        <main>
+            <!-- Creator-only Admin Panel -->
+            <div id="creator-panel" class="hidden">
+                <h2>Creator Admin Panel</h2>
+                <div class="card">
+                    <h3>Node.js Bridge Status</h3>
+                    <p>If the bridge is disconnected, download it using the button in the top-right, then follow the included README to run it.</p>
+                    <div class="status-box">
+                        <strong>Bridge Status:</strong> <span id="bridge-status">Disconnected</span>
+                    </div>
+                </div>
+                 <div class="card">
+                    <h3>Activity Log</h3>
+                    <div id="creator-log" class="log-box"></div>
+                </div>
+            </div>
+
+            <!-- Requester Panel -->
+            <div id="requester-panel" class="hidden">
+                <h2>Request a Build</h2>
+                <div class="card">
+                    <form id="build-form">
+                        <div class="form-group">
+                            <label for="project-input">Select Project or Enter Websim URL:</label>
+                            <input type="text" id="project-input" list="project-list" placeholder="Start typing project name or paste a URL..." required>
+                            <datalist id="project-list">
+                                <!-- Options will be populated by JS -->
+                            </datalist>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="platform-select">Select Platform:</label>
+                            <select id="platform-select" required>
+                                <option value="windows">Windows (x64)</option>
+                                <option value="linux">Linux (x64)</option>
+                                <option value="mac">macOS (x64)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="app-name">Application Name:</label>
+                            <input type="text" id="app-name" placeholder="My Awesome App" required>
+                        </div>
+
+                        <button type="submit" id="submit-build" class="button primary">Request Build</button>
+                    </form>
+                </div>
+                 <div class="card">
+                    <h3>Your Build Status</h3>
+                    <div id="requester-log" class="log-box"></div>
+                </div>
+            </div>
+
+            <div id="loading-view">
+                <p>Connecting to service...</p>
+            </div>
+        </main>
+        <footer>
+            <p>Powered by Websim. The creator of this page runs a local build process to package your app.</p>
+        </footer>
+    </div>
+    <script type="importmap">
+    {
+      "imports": {
+        "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm"
+      }
+    }
+    </script>
+    <script type="module" src="client.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
